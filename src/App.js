@@ -7,10 +7,10 @@ const LINE_A = {
   short: "Antimicrobial",
   color: "#0ea5e9",
   silos: [
-    { id:"A1", num:1, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","CaCO3","caco3"], color:"#38bdf8" },
-    { id:"A2", num:2, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","산화붕소","B2O3","b2o3"], color:"#818cf8" },
+    { id:"A1", num:1, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","CaCO3","caco3"], color:"#38bdf8" },
+    { id:"A2", num:2, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","B2O3","b2o3","B203"], color:"#818cf8" },
     { id:"A3", num:3, formula:"ZnO",   full:"Zinc Oxide",          cas:"1314-13-2",  aliases:["zinc oxide","산화아연","ZnO","zno"], color:"#34d399" },
-    { id:"A4", num:4, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","SiO2","sio2"], color:"#fbbf24" },
+    { id:"A4", num:4, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","SiO2","sio2"], color:"#fbbf24" },
     { id:"A5", num:5, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","K2CO3","k2co3"], color:"#f87171" },
     { id:"A6", num:6, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","Na2CO3","na2co3"], color:"#fb923c" },
   ]
@@ -22,14 +22,14 @@ const LINE_B = {
   short: "Enamel",
   color: "#a78bfa",
   silos: [
-    { id:"B1", num:1, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","산화붕소","B2O3","b2o3"], color:"#818cf8" },
-    { id:"B2", num:2, formula:"TiO₂",  full:"Titanium Dioxide",    cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","TiO2","tio2"], color:"#22d3ee" },
+    { id:"B1", num:1, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","B2O3","b2o3","B203"], color:"#818cf8" },
+    { id:"B2", num:2, formula:"TiO₂",  full:"Titanium Dioxide",    cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","titan dioxit","cotiox","ka-100","TiO2","tio2"], color:"#22d3ee" },
     { id:"B3", num:3, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","Na2CO3","na2co3"], color:"#fb923c" },
     { id:"B4", num:4, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","K2CO3","k2co3"], color:"#f87171" },
-    { id:"B5", num:5, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","SiO2","sio2"], color:"#fbbf24" },
-    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","CaCO3","caco3"], color:"#38bdf8" },
-    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide",        cas:"1308-06-1",  aliases:["cobalt oxide","cobalt(II,III) oxide","산화코발트","Co3O4","co3o4"], color:"#4ade80" },
-    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide",          cas:"1309-37-1",  aliases:["iron oxide","iron(III) oxide","산화철","Fe2O3","fe2o3"], color:"#f97316" },
+    { id:"B5", num:5, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","SiO2","sio2"], color:"#fbbf24" },
+    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","CaCO3","caco3"], color:"#38bdf8" },
+    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide",        cas:"1308-06-1",  aliases:["cobalt oxide","cobalt(ii,iii) oxide","tricobalt tetraoxide","산화코발트","Co3O4","co3o4"], color:"#4ade80" },
+    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide (RED-1100)",cas:"1309-37-1", aliases:["iron oxide","iron(iii) oxide","red-1100","red 1100","red1100","산화철","Fe2O3","fe2o3","Fe203"], color:"#f97316" },
     { id:"B9", num:9, formula:"CeO₂",  full:"Cerium Oxide",        cas:"1306-38-3",  aliases:["cerium oxide","cerium dioxide","산화세륨","CeO2","ceo2"], color:"#e879f9" },
   ]
 };
@@ -39,11 +39,36 @@ const API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY || "";
 function matchChemical(name, cas, silos) {
   if (!name && !cas) return null;
   const nl = (name || "").toLowerCase().trim();
-  const cc = (cas || "").trim();
-  return silos.find(s =>
-    s.aliases.some(a => a.toLowerCase() === nl) ||
-    (cc && s.cas === cc)
-  ) || null;
+  const cc = (cas || "").replace(/\s/g, "").trim();
+
+  // 1순위: CAS 번호 정확 일치 (가장 신뢰도 높음)
+  if (cc) {
+    const byCas = silos.find(s => s.cas.replace(/\s/g, "") === cc);
+    if (byCas) return byCas;
+  }
+  if (!nl) return null;
+
+  // 2순위: 별칭 정확 일치
+  const exact = silos.find(s => s.aliases.some(a => a.toLowerCase() === nl));
+  if (exact) return exact;
+
+  // 3순위: 부분 포함 (포대에 긴 문구가 있어도 핵심 별칭이 들어있으면 매칭)
+  const partial = silos.find(s => s.aliases.some(a => {
+    const al = a.toLowerCase();
+    if (al.length <= 4) {
+      // 짧은 별칭(zno, sio2 등)은 정확히 토큰으로 등장할 때만 (오인식 방지)
+      const tokens = nl.split(/[^a-z0-9]+/);
+      return tokens.includes(al);
+    }
+    return nl.includes(al) || al.includes(nl);
+  }));
+  return partial || null;
+}
+
+function getBest(parsed, silos) {
+  return matchChemical(parsed.chemical_name, parsed.cas_number, silos)
+      || matchChemical(parsed.formula, parsed.cas_number, silos)
+      || matchChemical(parsed.raw_text, parsed.cas_number, silos);
 }
 
 function SiloCard({ silo, state }) {
@@ -186,11 +211,13 @@ Extract the chemical information from the image and return ONLY JSON (no other t
 
 Registered materials for the current line (${currentLine.name}): ${siloList}
 
+Read ALL visible text including chemical names, formulas, CAS numbers, AND any product/brand codes (e.g. "RED-1100", "KA-100", "COTIOX", "PURE SILICA"). Put everything you see in raw_text.
+
 {
-  "chemical_name": "recognized chemical name in English",
-  "formula": "chemical formula (e.g. ZnO, B2O3)",
+  "chemical_name": "recognized chemical name in English (or product/brand name if no chemical name)",
+  "formula": "chemical formula (e.g. ZnO, B2O3) if visible, else null",
   "cas_number": "CAS number (null if none)",
-  "raw_text": "main text read from the image",
+  "raw_text": "ALL text read from the image including product codes and brand names",
   "confidence": "high/medium/low"
 }`
               }
@@ -209,8 +236,7 @@ Registered materials for the current line (${currentLine.name}): ${siloList}
       addLog(`🔍 Recognized: ${parsed.chemical_name || "Unknown"} / ${parsed.formula || "-"} (confidence: ${parsed.confidence})`, "info");
 
       const currentLineSilos = activeLine === "A" ? LINE_A.silos : LINE_B.silos;
-      const matched = matchChemical(parsed.chemical_name, parsed.cas_number, currentLineSilos)
-                   || matchChemical(parsed.formula, parsed.cas_number, currentLineSilos);
+      const matched = getBest(parsed, currentLineSilos);
 
       const newStates = { ...initStates };
       if (matched) {
