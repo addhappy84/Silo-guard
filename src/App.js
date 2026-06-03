@@ -34,46 +34,106 @@ const LINE_B = {
   ]
 };
 
-// CAS 번호 패턴 (예: 1303-86-2)
-function extractCas(text) {
-  const m = text.match(/\b\d{2,7}-\d{2}-\d\b/);
-  return m ? m[0] : null;
-}
-
-// OCR로 읽은 전체 텍스트에서 사일로 매칭
+// ─── OCR 인식률 극대화를 위한 텍스트 정규화 매칭 ───
 function matchFromText(rawText, silos) {
   if (!rawText) return null;
-  const text = rawText.toLowerCase().replace(/\s+/g, " ");
-  const cas = extractCas(rawText);
-
-  // 1순위: CAS 번호
-  if (cas) {
-    const byCas = silos.find(s => s.cas.replace(/\s/g, "") === cas.replace(/\s/g, ""));
-    if (byCas) return { silo: byCas, by: "CAS " + cas };
+  
+  // 1순위: CAS 번호 (정규식으로 정확히 추출)
+  const casMatch = rawText.match(/\b\d{2,7}-\d{2}-\d\b/);
+  if (casMatch) {
+    const byCas = silos.find(s => s.cas === casMatch[0]);
+    if (byCas) return { silo: byCas, by: "CAS " + casMatch[0] };
   }
 
-  // 2순위: 긴 별칭 (화학명, 제품명) — 텍스트에 포함되어 있으면
+  // 텍스트 정규화: 띄어쓰기, 특수문자 모두 제거 (오인식 및 구겨짐 방어)
+  // 예: "C a C O 3" -> "caco3"
+  const cleanText = rawText.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+
+  // 2순위: 긴 별칭 (화학명, 제품명)
   for (const s of silos) {
     for (const a of s.aliases) {
-      if (a.length >= 5 && text.includes(a)) {
+      const cleanAlias = a.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+      if (cleanAlias.length >= 4 && cleanText.includes(cleanAlias)) {
         return { silo: s, by: a };
       }
     }
   }
 
-  // 3순위: 짧은 화학식 (zno, sio2 등) — 단어 경계로 정확히 등장할 때만
-  // (공백 제거 포함매칭은 오인식이 많아 제외)
+  // 3순위: 짧은 화학식 (zno, sio2 등)
+  // 짧은 단어는 다른 단어에 포함될 수 있으므로 단어 경계(띄어쓰기)를 기준으로 검사
+  const tokenText = rawText.toLowerCase().replace(/[^a-z0-9가-힣\s]/g, " ");
+  const tokens = tokenText.split(/\s+/).filter(Boolean);
+  
   for (const s of silos) {
     for (const a of s.aliases) {
       if (a.length <= 5) {
-        const tokens = text.split(/[^a-z0-9]+/).filter(Boolean);
-        if (tokens.includes(a)) {
+        const cleanAlias = a.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+        if (tokens.includes(cleanAlias)) {
           return { silo: s, by: a.toUpperCase() };
         }
       }
     }
   }
   return null;
+}
+
+// ─── Tesseract 전용 이미지 전처리 (Grayscale + High Contrast) ───
+function preprocessImageForOCR(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        // OCR에 가장 적합한 해상도로 리사이징 (너무 크면 느리고, 작으면 깨짐)
+        const MAX_WIDTH = 1200; 
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 픽셀 데이터 조작 (흑백 변환 및 대비 극대화)
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        
+        const contrast = 75; // 대비 증가 수치 (-255 ~ 255)
+        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          
+          // 1. Grayscale (흑백)
+          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+          
+          // 2. Contrast (대비 극대화 - 글씨를 더 까맣게, 배경을 더 하얗게)
+          let color = factor * (gray - 128) + 128;
+          color = Math.max(0, Math.min(255, color)); // 0\~255 제한
+
+          data[i] = color;     // R
+          data[i + 1] = color; // G
+          data[i + 2] = color; // B
+          // Alpha(data[i+3])는 그대로 유지
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
 }
 
 function SiloCard({ silo, state }) {
@@ -179,24 +239,32 @@ export default function App() {
     }
     setLoading(true);
     setProgress(0);
-    addLog("📷 Reading text from image (free OCR)...", "info");
-
+    
     const currentLine = activeLine === "A" ? LINE_A : LINE_B;
 
     try {
-      const worker = await window.Tesseract.createWorker("eng", 1, {
+      // 1. 이미지 전처리 (인식률 향상의 핵심)
+      addLog("⚙️ Enhancing image (Grayscale & Contrast)...", "info");
+      const processedImageBase64 = await preprocessImageForOCR(image);
+
+      // 2. Tesseract OCR 구동 (eng+kor 다국어 지원)
+      addLog("📷 Reading text (Tesseract eng+kor)...", "info");
+      const worker = await window.Tesseract.createWorker("eng+kor", 1, {
         logger: m => {
           if (m.status === "recognizing text") {
             setProgress(Math.round(m.progress * 100));
           }
         }
       });
-      const { data } = await worker.recognize(image);
+      
+      // 원본 이미지가 아닌 전처리된 이미지를 주입
+      const { data } = await worker.recognize(processedImageBase64);
       await worker.terminate();
 
       const rawText = (data.text || "").trim();
       addLog(`🔍 OCR read: "${rawText.replace(/\n/g," ").slice(0,60)}..."`, "info");
 
+      // 3. 텍스트 매칭
       const currentLineSilos = currentLine.silos;
       const match = matchFromText(rawText, currentLineSilos);
 
@@ -217,7 +285,7 @@ export default function App() {
       addLog("⚠️ Error: " + err.message, "error");
     } finally {
       setLoading(false);
-      setProgress(0);
+      setTimeout(() => setProgress(0), 1000);
     }
   }, [image, activeLine, initStates]);
 
@@ -253,7 +321,7 @@ export default function App() {
         }}>🏭</div>
         <div>
           <div style={{ fontSize:16,fontWeight:900 }}>Silo Charging Error Prevention System</div>
-          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR (Tesseract) · Antimicrobial (6) + Enamel (9)</div>
+          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR (Enhanced Tesseract) · Antimicrobial (6) + Enamel (9)</div>
         </div>
         <div style={{ marginLeft:"auto",display:"flex",gap:6,alignItems:"center" }}>
           <div style={{ width:7,height:7,borderRadius:"50%",background:"#22c55e",
@@ -319,15 +387,22 @@ export default function App() {
                 minHeight:180, display:"flex", flexDirection:"column",
                 alignItems:"center", justifyContent:"center",
                 cursor:"pointer", background:"#0d1117", overflow:"hidden",
+                position: "relative"
               }}>
               {imgURL
-                ? <img src={imgURL} style={{ width:"100%",height:180,objectFit:"cover" }} alt="bag" />
+                ? <img src={imgURL} style={{ width:"100%",height:180,objectFit:"cover", opacity: loading ? 0.3 : 1 }} alt="bag" />
                 : <>
                     <div style={{ fontSize:36,marginBottom:6 }}>📦</div>
                     <div style={{ color:"#4b5563",fontSize:12 }}>Upload bag photo</div>
                     <div style={{ color:"#374151",fontSize:10,marginTop:3 }}>Click or drag</div>
                   </>
               }
+              {loading && (
+                <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%, -50%)", textAlign:"center" }}>
+                  <div style={{ fontSize:24, animation:"glow 1s infinite" }}>⏳</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:"#fff", marginTop:8 }}>{progress}%</div>
+                </div>
+              )}
             </div>
             <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
               onChange={e=>handleFile(e.target.files[0])} />
@@ -340,7 +415,7 @@ export default function App() {
                   fontWeight:800, fontSize:13,
                   cursor: image&&!loading?"pointer":"not-allowed",
                 }}>
-                {loading ? `🔍 Reading... ${progress}%` : "🔍 OCR Scan"}
+                {loading ? `🔍 Scanning...` : "🔍 Enhanced OCR Scan"}
               </button>
               <button onClick={reset} style={{
                 padding:"11px 14px", borderRadius:10, border:"1px solid #1f2937",
