@@ -143,30 +143,49 @@ function matchFromText(rawText, silos) {
   return null;
 }
 
-// ─── 이미지 전처리: 확대 + 흑백 + 이진화 (한 영역) ───
-function processRegion(img, sx, sy, sw, sh, scale) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(sw * scale);
-  canvas.height = Math.round(sh * scale);
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+// ─── 이미지 전처리: 확대 + 흑백 + 이진화 + 회전 (한 영역) ───
+function processRegion(img, sx, sy, sw, sh, scale, rotateDeg) {
+  rotateDeg = rotateDeg || 0;
+  // 먼저 영역을 잘라 확대+이진화한 base canvas 생성
+  const base = document.createElement("canvas");
+  base.width = Math.round(sw * scale);
+  base.height = Math.round(sh * scale);
+  const bctx = base.getContext("2d");
+  bctx.drawImage(img, sx, sy, sw, sh, 0, 0, base.width, base.height);
 
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const imgData = bctx.getImageData(0, 0, base.width, base.height);
   const d = imgData.data;
   let sum = 0;
-  const grays = new Float32Array(canvas.width * canvas.height);
+  const grays = new Float32Array(base.width * base.height);
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
     grays[p] = g; sum += g;
   }
-  const mean = sum / (canvas.width * canvas.height);
+  const mean = sum / (base.width * base.height);
   const threshold = mean * 0.80; // 평균보다 어두운 픽셀만 글자(검정)로
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     const v = grays[p] < threshold ? 0 : 255;
     d[i] = d[i+1] = d[i+2] = v;
   }
-  ctx.putImageData(imgData, 0, 0);
-  return canvas;
+  bctx.putImageData(imgData, 0, 0);
+
+  if (rotateDeg === 0) return base;
+
+  // 회전 적용: 90/270은 가로세로 교체
+  const out = document.createElement("canvas");
+  const rad = (rotateDeg * Math.PI) / 180;
+  if (rotateDeg === 90 || rotateDeg === 270) {
+    out.width = base.height; out.height = base.width;
+  } else {
+    out.width = base.width; out.height = base.height;
+  }
+  const octx = out.getContext("2d");
+  octx.fillStyle = "#fff";
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.translate(out.width / 2, out.height / 2);
+  octx.rotate(rad);
+  octx.drawImage(base, -base.width / 2, -base.height / 2);
+  return out;
 }
 
 // 원본 이미지를 로드해서 Image 객체로
@@ -287,21 +306,12 @@ export default function App() {
     const currentLineSilos = currentLine.silos;
 
     try {
-      addLog("⚙️ Enhancing image (zoom + B/W binarize)...", "info");
+      addLog("⚙️ Enhancing image (zoom + B/W + rotation)...", "info");
       const { img, url } = await loadImage(image);
 
       // 긴 변이 ~1800px 되도록 확대 배율
       const scale = Math.min(3, Math.max(1.2, 1800 / Math.max(img.width, img.height)));
       const W = img.width, H = img.height;
-
-      // 스캔할 영역들: 전체 + 중앙 확대 + 상/하단
-      // (중앙에 정보 없어도, 가장자리만 읽혀도 잡히도록 여러 영역 시도)
-      const regions = [
-        { name:"full",   sx:0,        sy:0,        sw:W,       sh:H },
-        { name:"center", sx:W*0.10,   sy:H*0.20,   sw:W*0.80,  sh:H*0.55 },
-        { name:"top",    sx:0,        sy:0,        sw:W,       sh:H*0.55 },
-        { name:"bottom", sx:0,        sy:H*0.45,   sw:W,       sh:H*0.55 },
-      ];
 
       const worker = await window.Tesseract.createWorker("eng", 1, {
         logger: m => {
@@ -316,20 +326,42 @@ export default function App() {
       let match = null;
       let allText = "";
 
-      // 각 영역을 전처리 → OCR → 즉시 매칭 시도 (하나 잡히면 멈춤)
-      for (let r = 0; r < regions.length; r++) {
-        const reg = regions[r];
-        addLog(`🔍 Scanning region: ${reg.name} (${r+1}/${regions.length})...`, "info");
-        const canvas = processRegion(img, reg.sx, reg.sy, reg.sw, reg.sh, scale);
+      // 한 영역을 OCR하고 매칭 시도하는 헬퍼
+      const tryScan = async (label, sx, sy, sw, sh, rot) => {
+        const canvas = processRegion(img, sx, sy, sw, sh, scale, rot);
         const { data } = await worker.recognize(canvas);
         const txt = (data.text || "").trim();
-        allText += " " + txt;
         if (txt) {
+          allText += " " + txt;
           const found = matchFromText(txt, currentLineSilos);
-          if (found) { match = found; break; }
+          if (found) return found;
+        }
+        return null;
+      };
+
+      // ── 1단계: 전체 이미지를 4방향 회전으로 시도 (누운 라벨 대응) ──
+      const rotations = [0, 90, 180, 270];
+      for (let i = 0; i < rotations.length && !match; i++) {
+        const rot = rotations[i];
+        addLog(`🔄 Scanning full image @ ${rot}° (${i+1}/4)...`, "info");
+        match = await tryScan("full", 0, 0, W, H, rot);
+      }
+
+      // ── 2단계: 못 찾으면 세부 영역을 0°로 스캔 (중앙/상/하) ──
+      if (!match) {
+        const regions = [
+          { name:"center", sx:W*0.10, sy:H*0.20, sw:W*0.80, sh:H*0.55 },
+          { name:"top",    sx:0,      sy:0,      sw:W,      sh:H*0.55 },
+          { name:"bottom", sx:0,      sy:H*0.45, sw:W,      sh:H*0.55 },
+        ];
+        for (let r = 0; r < regions.length && !match; r++) {
+          const reg = regions[r];
+          addLog(`🔍 Scanning region: ${reg.name} (${r+1}/${regions.length})...`, "info");
+          match = await tryScan(reg.name, reg.sx, reg.sy, reg.sw, reg.sh, 0);
         }
       }
-      // 영역별로 못 찾았으면 전체 누적 텍스트로 마지막 시도
+
+      // 마지막: 누적 텍스트로 한번 더
       if (!match) match = matchFromText(allText, currentLineSilos);
 
       await worker.terminate();
@@ -391,7 +423,7 @@ export default function App() {
         }}>🏭</div>
         <div>
           <div style={{ fontSize:16,fontWeight:900 }}>Silo Charging Error Prevention System</div>
-          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR · Multi-region + Binarize + Fuzzy · Antimicrobial (6) + Enamel (9)</div>
+          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR · Rotation + Multi-region + Binarize + Fuzzy · Antimicrobial (6) + Enamel (9)</div>
         </div>
         <div style={{ marginLeft:"auto",display:"flex",gap:6,alignItems:"center" }}>
           <div style={{ width:7,height:7,borderRadius:"50%",background:"#22c55e",
@@ -492,7 +524,7 @@ export default function App() {
               }}>Reset</button>
             </div>
             <div style={{ fontSize:9, color:"#374151", marginTop:6, lineHeight:1.4 }}>
-              💡 Tip: 화학명이나 화학식(예: ZnO)이 잘 보이게, 가까이·밝게 촬영하면 인식률이 올라갑니다. 여러 영역을 자동으로 스캔합니다.
+              💡 Tip: 화학명·화학식(예: ZnO)이 잘 보이게 가까이·밝게 촬영하세요. 라벨이 누워 있어도 자동으로 4방향 회전하며 인식합니다.
             </div>
           </div>
 
