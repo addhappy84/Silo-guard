@@ -34,74 +34,107 @@ const LINE_B = {
   ]
 };
 
-// ─── 레벤슈타인 거리 (문자열 유사도 계산 알고리즘) ───
-// 두 단어가 몇 글자나 다른지 계산합니다. (오타 허용 매칭용)
+// 핵심 키워드 → 화학식 (OCR이 단어 하나만 제대로 읽어도 잡기 위한 보조 매칭)
+const KEYWORDS = [
+  { k:"zinc", f:"zno" }, { k:"boron", f:"b2o3" }, { k:"cobalt", f:"co3o4" },
+  { k:"cerium", f:"ceo2" }, { k:"titanium", f:"tio2" }, { k:"potassium", f:"k2co3" },
+  { k:"sodium", f:"na2co3" }, { k:"calcium", f:"caco3" }, { k:"silica", f:"sio2" },
+  { k:"silicon", f:"sio2" }, { k:"iron", f:"fe2o3" }, { k:"cotiox", f:"tio2" },
+  { k:"red1100", f:"fe2o3" }, { k:"red-1100", f:"fe2o3" },
+];
+
+// ─── 레벤슈타인 거리 (오타 허용 매칭) ───
 function levenshtein(a, b) {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  const m = [];
+  for (let i = 0; i <= b.length; i++) m[i] = [i];
+  for (let j = 0; j <= a.length; j++) m[0][j] = j;
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // 대체
-          matrix[i][j - 1] + 1,     // 삽입
-          matrix[i - 1][j] + 1      // 삭제
-        );
+      m[i][j] = b.charAt(i-1) === a.charAt(j-1)
+        ? m[i-1][j-1]
+        : Math.min(m[i-1][j-1]+1, m[i][j-1]+1, m[i-1][j]+1);
+    }
+  }
+  return m[b.length][a.length];
+}
+
+function extractCas(text) {
+  const m = text.match(/\b\d{2,7}-\d{2}-\d\b/);
+  return m ? m[0] : null;
+}
+
+// OCR 흔한 혼동 보정: 0↔o, 1↔l↔i, 5↔s, 8↔b 등을 한 방향으로 통일
+// (화학명 매칭 정확도를 위해 알파벳 우선으로 변환한 보조 문자열 생성)
+function normalizeOcr(str) {
+  return str
+    .replace(/0/g, "o")
+    .replace(/1/g, "l")
+    .replace(/5/g, "s")
+    .replace(/8/g, "b")
+    .replace(/\|/g, "l");
+}
+
+// ─── 텍스트 → 사일로 매칭 (CAS → 정확 → 부분 → 키워드 → 오타허용) ───
+function matchFromText(rawText, silos) {
+  if (!rawText) return null;
+  const text = rawText.toLowerCase().replace(/\s+/g, " ");
+  const compact = text.replace(/[^a-z0-9가-힣]/g, "");
+  const tokens = text.split(/[^a-z0-9가-힣]+/).filter(Boolean);
+
+  // 1순위: CAS 번호
+  const cas = extractCas(rawText);
+  if (cas) {
+    const byCas = silos.find(s => s.cas === cas);
+    if (byCas) return { silo: byCas, by: "CAS " + cas };
+  }
+
+  // 2순위: 긴 별칭 정확/부분 포함 (화학명, 제품명, 한글)
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      const ca = a.replace(/[^a-z0-9가-힣]/g, "");
+      if (ca.length >= 4 && compact.includes(ca)) return { silo: s, by: a };
+    }
+  }
+
+  // 3순위: 짧은 화학식 (zno, sio2 등) — 토큰 일치 또는 공백제거 포함
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      const ca = a.replace(/[^a-z0-9]/g, "");
+      if (ca.length <= 5 && ca.length >= 3) {
+        if (tokens.includes(a) || compact.includes(ca)) return { silo: s, by: a.toUpperCase() };
       }
     }
   }
-  return matrix[b.length][a.length];
-}
 
-// ─── Fuzzy Matching이 적용된 텍스트 매칭 ───
-function matchFromText(rawText, silos) {
-  if (!rawText) return null;
-  
-  // 1순위: CAS 번호 (정확한 정규식)
-  const casMatch = rawText.match(/\b\d{2,7}-\d{2}-\d\b/);
-  if (casMatch) {
-    const byCas = silos.find(s => s.cas === casMatch[0]);
-    if (byCas) return { silo: byCas, by: "CAS " + casMatch[0] };
+  // 4순위: 핵심 키워드 (단어 하나만 읽혔을 때) — 정규화 버전으로도 비교
+  const compactNorm = normalizeOcr(compact);
+  for (const kw of KEYWORDS) {
+    const kk = kw.k.replace(/[^a-z0-9]/g, "");
+    if (compact.includes(kk) || compactNorm.includes(normalizeOcr(kk))) {
+      const s = silos.find(si => si.aliases.some(a => a.replace(/[^a-z0-9]/g,"") === kw.f));
+      if (s) return { silo: s, by: kw.k };
+    }
   }
 
-  const normalizedText = rawText.toLowerCase();
-  const cleanFullText = normalizedText.replace(/[^a-z0-9가-힣]/g, "");
-  const tokens = normalizedText.replace(/[^a-z0-9가-힣\s]/g, " ").split(/\s+/).filter(Boolean);
-
+  // 5순위: 오타 허용 (레벤슈타인) — 단어 1~3개 묶어 화학명과 비교
+  // OCR 혼동문자(0↔o,1↔l,5↔s)를 보정한 버전으로도 비교
   for (const s of silos) {
     for (const a of s.aliases) {
-      const cleanAlias = a.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
-      
-      // 2순위: 완전 포함 매칭 (기존 방식)
-      if (cleanAlias.length >= 4 && cleanFullText.includes(cleanAlias)) {
-        return { silo: s, by: a };
-      }
-      if (cleanAlias.length <= 3 && tokens.includes(cleanAlias)) {
-        return { silo: s, by: a.toUpperCase() };
-      }
-
-      // 3순위: Fuzzy 매칭 (오타 허용)
-      // 텍스트의 단어들을 1\~3개씩 묶어서 DB의 단어와 유사도 비교
+      const ca = a.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+      if (ca.length < 5) continue; // 짧은 건 오타매칭 위험 → 제외
+      const caNorm = normalizeOcr(ca);
       for (let i = 0; i < tokens.length; i++) {
-        let combinedToken = "";
+        let combo = "";
         for (let j = 0; j < 3 && i + j < tokens.length; j++) {
-          combinedToken += tokens[i + j];
-          
-          // 길이 차이가 너무 크면 비교 스킵 (연산 최적화)
-          if (Math.abs(combinedToken.length - cleanAlias.length) > 2) continue;
-
-          const dist = levenshtein(combinedToken, cleanAlias);
-          
-          // 허용 오차: 긴 단어는 2글자, 짧은 단어는 1글자 오타까지 정답 인정
-          const maxDist = cleanAlias.length >= 6 ? 2 : (cleanAlias.length >= 4 ? 1 : 0);
-          
+          combo += tokens[i + j];
+          if (Math.abs(combo.length - ca.length) > 2) continue;
+          const comboNorm = normalizeOcr(combo);
+          const dist = Math.min(levenshtein(combo, ca), levenshtein(comboNorm, caNorm));
+          const maxDist = ca.length >= 8 ? 2 : 1;
           if (dist > 0 && dist <= maxDist) {
-            return { silo: s, by: `${a} (Auto-corrected from '${combinedToken}')` };
+            return { silo: s, by: `${a} (~${combo})` };
           }
         }
       }
@@ -110,80 +143,40 @@ function matchFromText(rawText, silos) {
   return null;
 }
 
-// ─── 이미지 전처리 고도화 (Sharpening + Grayscale + High Contrast) ───
-function preprocessImageForOCR(file) {
+// ─── 이미지 전처리: 확대 + 흑백 + 이진화 (한 영역) ───
+function processRegion(img, sx, sy, sw, sh, scale) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(sw * scale);
+  canvas.height = Math.round(sh * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  let sum = 0;
+  const grays = new Float32Array(canvas.width * canvas.height);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+    grays[p] = g; sum += g;
+  }
+  const mean = sum / (canvas.width * canvas.height);
+  const threshold = mean * 0.80; // 평균보다 어두운 픽셀만 글자(검정)로
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const v = grays[p] < threshold ? 0 : 255;
+    d[i] = d[i+1] = d[i+2] = v;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+// 원본 이미지를 로드해서 Image 객체로
+function loadImage(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 1200; 
-        let width = img.width;
-        let height = img.height;
-
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const data = imageData.data;
-        
-        // 1. Grayscale 변환 배열 생성
-        const grayData = new Uint8ClampedArray(width * height);
-        for (let i = 0; i < data.length; i += 4) {
-          grayData[i/4] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-        }
-
-        // 2. Sharpening (경계선 선명화 필터)
-        const sharpData = new Uint8ClampedArray(width * height);
-        const w = width;
-        for (let y = 1; y < height - 1; y++) {
-          for (let x = 1; x < width - 1; x++) {
-            const idx = y * w + x;
-            const top = (y - 1) * w + x;
-            const bottom = (y + 1) * w + x;
-            const left = y * w + (x - 1);
-            const right = y * w + (x + 1);
-            
-            // 3x3 샤프닝 커널 적용
-            let val = 5 * grayData[idx] - grayData[top] - grayData[bottom] - grayData[left] - grayData[right];
-            sharpData[idx] = Math.min(255, Math.max(0, val));
-          }
-        }
-
-        // 3. High Contrast (대비 극대화) 적용하여 원본 픽셀 덮어쓰기
-        const contrast = 85; 
-        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-
-        for (let i = 0; i < data.length; i += 4) {
-          const pixelIdx = i / 4;
-          // 테두리는 샤프닝이 안되므로 원본 그레이스케일 사용
-          let val = (pixelIdx < w || pixelIdx > w*(height-1) || pixelIdx%w === 0 || pixelIdx%w === w-1) 
-                    ? grayData[pixelIdx] : sharpData[pixelIdx];
-          
-          val = factor * (val - 128) + 128;
-          val = Math.max(0, Math.min(255, val));
-
-          data[i] = val;     // R
-          data[i + 1] = val; // G
-          data[i + 2] = val; // B
-        }
-        
-        ctx.putImageData(imageData, 0, 0);
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
-      };
-      img.onerror = (err) => reject(err);
-    };
-    reader.onerror = (err) => reject(err);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { resolve({ img, url }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image load failed")); };
+    img.src = url;
   });
 }
 
@@ -290,38 +283,59 @@ export default function App() {
     }
     setLoading(true);
     setProgress(0);
-    
     const currentLine = activeLine === "A" ? LINE_A : LINE_B;
+    const currentLineSilos = currentLine.silos;
 
     try {
-      // 1. 강력한 이미지 전처리 (Sharpening + Contrast)
-      addLog("⚙️ Enhancing image (Sharpening & Contrast)...", "info");
-      const processedImageBase64 = await preprocessImageForOCR(image);
+      addLog("⚙️ Enhancing image (zoom + B/W binarize)...", "info");
+      const { img, url } = await loadImage(image);
 
-      // 2. Tesseract OCR 구동
-      addLog("📷 Reading text (Tesseract eng+kor)...", "info");
-      const worker = await window.Tesseract.createWorker("eng+kor", 1, {
+      // 긴 변이 ~1800px 되도록 확대 배율
+      const scale = Math.min(3, Math.max(1.2, 1800 / Math.max(img.width, img.height)));
+      const W = img.width, H = img.height;
+
+      // 스캔할 영역들: 전체 + 중앙 확대 + 상/하단
+      // (중앙에 정보 없어도, 가장자리만 읽혀도 잡히도록 여러 영역 시도)
+      const regions = [
+        { name:"full",   sx:0,        sy:0,        sw:W,       sh:H },
+        { name:"center", sx:W*0.10,   sy:H*0.20,   sw:W*0.80,  sh:H*0.55 },
+        { name:"top",    sx:0,        sy:0,        sw:W,       sh:H*0.55 },
+        { name:"bottom", sx:0,        sy:H*0.45,   sw:W,       sh:H*0.55 },
+      ];
+
+      const worker = await window.Tesseract.createWorker("eng", 1, {
         logger: m => {
-          if (m.status === "recognizing text") {
-            setProgress(Math.round(m.progress * 100));
-          }
+          if (m.status === "recognizing text") setProgress(Math.round(m.progress * 100));
         }
       });
-      
-      // 3. PSM 11 (Sparse Text) 모드 적용: 흩어진 단어들을 놓치지 않고 모두 추출
+      // 화학명/식에 쓰이는 글자만 허용 (직조무늬 오인식 줄이기)
       await worker.setParameters({
-        tessedit_pageseg_mode: '11',
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789()[].,-/ ",
       });
-      
-      const { data } = await worker.recognize(processedImageBase64);
+
+      let match = null;
+      let allText = "";
+
+      // 각 영역을 전처리 → OCR → 즉시 매칭 시도 (하나 잡히면 멈춤)
+      for (let r = 0; r < regions.length; r++) {
+        const reg = regions[r];
+        addLog(`🔍 Scanning region: ${reg.name} (${r+1}/${regions.length})...`, "info");
+        const canvas = processRegion(img, reg.sx, reg.sy, reg.sw, reg.sh, scale);
+        const { data } = await worker.recognize(canvas);
+        const txt = (data.text || "").trim();
+        allText += " " + txt;
+        if (txt) {
+          const found = matchFromText(txt, currentLineSilos);
+          if (found) { match = found; break; }
+        }
+      }
+      // 영역별로 못 찾았으면 전체 누적 텍스트로 마지막 시도
+      if (!match) match = matchFromText(allText, currentLineSilos);
+
       await worker.terminate();
 
-      const rawText = (data.text || "").trim();
-      addLog(`🔍 OCR read: "${rawText.replace(/\n/g," ").slice(0,60)}..."`, "info");
-
-      // 4. Fuzzy 매칭 로직 실행
-      const currentLineSilos = currentLine.silos;
-      const match = matchFromText(rawText, currentLineSilos);
+      const preview = allText.replace(/\s+/g," ").trim().slice(0,70);
+      addLog(`📄 OCR text: "${preview}..."`, "info");
 
       const newStates = { ...initStates };
       if (match) {
@@ -329,18 +343,19 @@ export default function App() {
         newStates[matched.id] = "open";
         currentLineSilos.forEach(s => { if (s.id !== matched.id) newStates[s.id] = "locked"; });
         addLog(`✅ Matched [${match.by}] → ${currentLine.short} Line Silo #${matched.num} OPEN!`, "success");
-        setResult({ matched, by: match.by, rawText, line: currentLine.name, lineShort: currentLine.short });
+        setResult({ matched, by: match.by, line: currentLine.name, lineShort: currentLine.short });
       } else {
         currentLineSilos.forEach(s => { newStates[s.id] = "locked"; });
-        addLog(`❌ No match found in this line — all locked. Try a clearer photo.`, "error");
-        setResult({ matched: null, rawText, line: currentLine.name, lineShort: currentLine.short });
+        addLog(`❌ No match in this line — all locked. Try a closer photo of the name.`, "error");
+        setResult({ matched: null, line: currentLine.name, lineShort: currentLine.short });
       }
       setSiloStates(newStates);
+      URL.revokeObjectURL(url);
     } catch(err) {
       addLog("⚠️ Error: " + err.message, "error");
     } finally {
       setLoading(false);
-      setTimeout(() => setProgress(0), 1000);
+      setTimeout(() => setProgress(0), 800);
     }
   }, [image, activeLine, initStates]);
 
@@ -376,7 +391,7 @@ export default function App() {
         }}>🏭</div>
         <div>
           <div style={{ fontSize:16,fontWeight:900 }}>Silo Charging Error Prevention System</div>
-          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR (Fuzzy Match + Sharpening) · Antimicrobial (6) + Enamel (9)</div>
+          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR · Multi-region + Binarize + Fuzzy · Antimicrobial (6) + Enamel (9)</div>
         </div>
         <div style={{ marginLeft:"auto",display:"flex",gap:6,alignItems:"center" }}>
           <div style={{ width:7,height:7,borderRadius:"50%",background:"#22c55e",
@@ -441,11 +456,10 @@ export default function App() {
                 border:`2px dashed ${lineColor}66`, borderRadius:12,
                 minHeight:180, display:"flex", flexDirection:"column",
                 alignItems:"center", justifyContent:"center",
-                cursor:"pointer", background:"#0d1117", overflow:"hidden",
-                position: "relative"
+                cursor:"pointer", background:"#0d1117", overflow:"hidden", position:"relative",
               }}>
               {imgURL
-                ? <img src={imgURL} style={{ width:"100%",height:180,objectFit:"cover", opacity: loading ? 0.3 : 1 }} alt="bag" />
+                ? <img src={imgURL} style={{ width:"100%",height:180,objectFit:"cover", opacity: loading?0.3:1 }} alt="bag" />
                 : <>
                     <div style={{ fontSize:36,marginBottom:6 }}>📦</div>
                     <div style={{ color:"#4b5563",fontSize:12 }}>Upload bag photo</div>
@@ -453,9 +467,9 @@ export default function App() {
                   </>
               }
               {loading && (
-                <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%, -50%)", textAlign:"center" }}>
+                <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", textAlign:"center" }}>
                   <div style={{ fontSize:24, animation:"glow 1s infinite" }}>⏳</div>
-                  <div style={{ fontSize:12, fontWeight:700, color:"#fff", marginTop:8 }}>{progress}%</div>
+                  <div style={{ fontSize:13, fontWeight:800, color:"#fff", marginTop:6 }}>{progress}%</div>
                 </div>
               )}
             </div>
@@ -470,12 +484,15 @@ export default function App() {
                   fontWeight:800, fontSize:13,
                   cursor: image&&!loading?"pointer":"not-allowed",
                 }}>
-                {loading ? `🔍 Scanning...` : "🔍 AI Fuzzy Scan"}
+                {loading ? `🔍 Scanning... ${progress}%` : "🔍 OCR Scan"}
               </button>
               <button onClick={reset} style={{
                 padding:"11px 14px", borderRadius:10, border:"1px solid #1f2937",
                 background:"transparent", color:"#6b7280", cursor:"pointer", fontSize:12,
               }}>Reset</button>
+            </div>
+            <div style={{ fontSize:9, color:"#374151", marginTop:6, lineHeight:1.4 }}>
+              💡 Tip: 화학명이나 화학식(예: ZnO)이 잘 보이게, 가까이·밝게 촬영하면 인식률이 올라갑니다. 여러 영역을 자동으로 스캔합니다.
             </div>
           </div>
 
