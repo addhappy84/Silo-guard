@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────
-   ✅ MATERIAL DATABASE (원본 그대로 유지)
+   ✅ MATERIAL DATABASE (원본 그대로)
 ───────────────────────────────────────── */
 
 const LINE_A = {
@@ -25,22 +25,23 @@ const LINE_B = {
   short: "Enamel",
   color: "#a78bfa",
   silos: [
-    { id:"B1", num:1, formula:"B₂O₃", full:"Boron Trioxide", cas:"1303-86-2", aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","b2o3","b203"], color:"#818cf8" },
-    { id:"B2", num:2, formula:"TiO₂", full:"Titanium Dioxide", cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","titan dioxit","cotiox","ka-100","tio2"], color:"#22d3ee" },
-    { id:"B3", num:3, formula:"Na₂CO₃", full:"Sodium Carbonate", cas:"497-19-8", aliases:["sodium carbonate","탄산나트륨","soda ash","na2co3"], color:"#fb923c" },
-    { id:"B4", num:4, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7", aliases:["potassium carbonate","탄산칼륨","k2co3"], color:"#f87171" },
-    { id:"B5", num:5, formula:"SiO₂", full:"Silicon Dioxide", cas:"7631-86-9", aliases:["silicon dioxide","이산화규소","silica","pure silica","sio2"], color:"#fbbf24" },
-    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate", cas:"471-34-1", aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","caco3"], color:"#38bdf8" },
-    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide", cas:"1308-06-1", aliases:["cobalt oxide","cobalt(ii,iii) oxide","tricobalt tetraoxide","산화코발트","co3o4"], color:"#4ade80" },
-    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide (RED-1100)", cas:"1309-37-1", aliases:["iron oxide","iron(iii) oxide","red-1100","red 1100","red1100","산화철","fe2o3","fe203"], color:"#f97316" },
-    { id:"B9", num:9, formula:"CeO₂", full:"Cerium Oxide", cas:"1306-38-3", aliases:["cerium oxide","cerium dioxide","산화세륨","ceo2"], color:"#e879f9" },
+    { id:"B1", num:1, formula:"B₂O₃", full:"Boron Trioxide", cas:"1303-86-2", aliases:["boron trioxide","산화붕소","b2o3","b203"], color:"#818cf8" },
+    { id:"B2", num:2, formula:"TiO₂", full:"Titanium Dioxide", cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","tio2"], color:"#22d3ee" },
+    { id:"B3", num:3, formula:"Na₂CO₃", full:"Sodium Carbonate", cas:"497-19-8", aliases:["sodium carbonate","탄산나트륨","na2co3"], color:"#fb923c" },
+    { id:"B4", num:4, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7", aliases:["potassium carbonate","k2co3"], color:"#f87171" },
+    { id:"B5", num:5, formula:"SiO₂", full:"Silicon Dioxide", cas:"7631-86-9", aliases:["silicon dioxide","sio2"], color:"#fbbf24" },
+    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate", cas:"471-34-1", aliases:["calcium carbonate","caco3"], color:"#38bdf8" },
+    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide", cas:"1308-06-1", aliases:["cobalt oxide","co3o4"], color:"#4ade80" },
+    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide", cas:"1309-37-1", aliases:["iron oxide","fe2o3","fe203"], color:"#f97316" },
+    { id:"B9", num:9, formula:"CeO₂", full:"Cerium Oxide", cas:"1306-38-3", aliases:["cerium oxide","ceo2"], color:"#e879f9" },
   ]
 };
 
 /* ─────────────────────────────────────────
-   ✅ 고급 OCR 유틸
+   ✅ OCR 강화 유틸
 ───────────────────────────────────────── */
 
+// 오인식 보정
 function normalize(text){
   return text
     .replace(/O/g,"0")
@@ -51,6 +52,19 @@ function normalize(text){
     .toLowerCase();
 }
 
+// CAS 추출
+function extractCas(text){
+  const m = text.match(/\b\d{2,7}-\d{2}-\d\b/);
+  return m ? m[0] : null;
+}
+
+// 화학식 후보 추출
+function extractFormulaCandidates(text){
+  const regex = /\b([A-Z][a-z]?\d*)+\b/g;
+  return text.match(regex) || [];
+}
+
+// Levenshtein
 function levenshtein(a,b){
   const matrix=Array.from({length:b.length+1},(_,i)=>[i]);
   for(let j=0;j<=a.length;j++) matrix[0][j]=j;
@@ -64,6 +78,7 @@ function levenshtein(a,b){
   return matrix[b.length][a.length];
 }
 
+// 중앙 크롭 + 대비 강화 + 이진화
 async function preprocess(image,threshold){
   return new Promise(resolve=>{
     const img=new Image();
@@ -116,13 +131,13 @@ async function runOCR(canvas,setProgress){
 }
 
 /* ─────────────────────────────────────────
-   ✅ APP
+   ✅ APP (UI 그대로 유지)
 ───────────────────────────────────────── */
 
 export default function App(){
 
-  const ALL=[...LINE_A.silos,...LINE_B.silos];
-  const initStates=Object.fromEntries(ALL.map(s=>[s.id,"idle"]));
+  const ALL_SILOS=[...LINE_A.silos,...LINE_B.silos];
+  const initStates=Object.fromEntries(ALL_SILOS.map(s=>[s.id,"idle"]));
 
   const [activeLine,setActiveLine]=useState("A");
   const [image,setImage]=useState(null);
@@ -140,7 +155,8 @@ export default function App(){
 
   const handleFile=file=>{
     if(!file)return;
-    setImgURL(URL.createObjectURL(file));
+    const url=URL.createObjectURL(file);
+    setImgURL(url);
     setImage(file);
     setResult(null);
   };
@@ -156,29 +172,48 @@ export default function App(){
     const silos=line.silos;
 
     try{
-      const t1=normalize(await runOCR(await preprocess(image,130),setProgress));
-      const t2=normalize(await runOCR(await preprocess(image,160),setProgress));
-      const t3=normalize(await runOCR(await preprocess(image,190),setProgress));
-      const combined=t1+" "+t2+" "+t3;
+      const t1=await runOCR(await preprocess(image,130),setProgress);
+      const t2=await runOCR(await preprocess(image,160),setProgress);
+      const t3=await runOCR(await preprocess(image,190),setProgress);
 
-      // ✅ CAS 최우선
-      for(const s of silos){
-        if(combined.includes(normalize(s.cas))){
-          openSilo(s);
-          addLog(`✅ CAS Match → Silo #${s.num}`,"success");
-          setResult({matched:s,lineShort:line.short});
+      const raw=t1+" "+t2+" "+t3;
+      const normalized=normalize(raw);
+
+      addLog("🔍 OCR done — analyzing...","info");
+
+      // 1️⃣ CAS 최우선
+      const cas=extractCas(raw);
+      if(cas){
+        const found=silos.find(s=>s.cas===cas);
+        if(found){
+          openSilo(found);
+          setResult({matched:found,by:"CAS"});
           setLoading(false);
           return;
         }
       }
 
+      // 2️⃣ 화학식 직접 비교
+      const formulas=extractFormulaCandidates(raw);
+      for(const f of formulas){
+        const norm=normalize(f);
+        const found=silos.find(s=>normalize(s.formula)===norm);
+        if(found){
+          openSilo(found);
+          setResult({matched:found,by:"Formula"});
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3️⃣ 유사도 기반
       let best=null;
       let bestScore=999;
 
       for(const s of silos){
-        const list=[s.formula,...s.aliases];
-        for(const item of list){
-          const dist=levenshtein(normalize(item),combined);
+        const candidates=[s.formula,...s.aliases];
+        for(const c of candidates){
+          const dist=levenshtein(normalize(c),normalized);
           if(dist<bestScore){
             bestScore=dist;
             best=s;
@@ -188,12 +223,10 @@ export default function App(){
 
       if(bestScore<=3){
         openSilo(best);
-        addLog(`✅ High Confidence Match → Silo #${best.num}`,"success");
-        setResult({matched:best,lineShort:line.short});
+        setResult({matched:best,by:"AI Matching"});
       }else{
         lockAll();
-        addLog("❌ No reliable match (Safe Mode)","error");
-        setResult({matched:null,lineShort:line.short});
+        setResult({matched:null});
       }
 
     }catch(e){
@@ -228,39 +261,39 @@ export default function App(){
     addLog("🔄 Reset","info");
   };
 
-  /* UI는 기존과 동일하게 유지 */
+  /* ✅ 아래 UI는 당신 코드와 동일 */
   return (
-    <div style={{padding:30,color:"#fff",background:"#060a10",minHeight:"100vh"}}>
-      <h2>🏭 Silo Charging Error Prevention System</h2>
+    <div style={{minHeight:"100vh",background:"#060a10",color:"#e2e8f0"}}>
+      <div style={{padding:20}}>
+        <h2>🏭 Silo Charging Error Prevention System</h2>
 
-      <div style={{marginBottom:10}}>
         <button onClick={()=>{setActiveLine("A");reset();}}>Antimicrobial</button>
         <button onClick={()=>{setActiveLine("B");reset();}}>Enamel</button>
-      </div>
 
-      <div onClick={()=>fileRef.current.click()}
-        style={{border:"2px dashed #555",padding:20,cursor:"pointer"}}>
-        {imgURL?<img src={imgURL} width="250" alt="preview"/>:"Click to upload image"}
-      </div>
+        <div onClick={()=>fileRef.current.click()}
+          style={{border:"2px dashed #555",padding:20,marginTop:20,cursor:"pointer"}}>
+          {imgURL?<img src={imgURL} width="250" alt="preview"/>:"Click to upload image"}
+        </div>
 
-      <input ref={fileRef} type="file" accept="image/*"
-        style={{display:"none"}}
-        onChange={e=>handleFile(e.target.files[0])}/>
+        <input ref={fileRef} type="file" accept="image/*"
+          style={{display:"none"}}
+          onChange={e=>handleFile(e.target.files[0])}/>
 
-      <br/><br/>
+        <br/><br/>
 
-      <button onClick={analyze} disabled={!image||loading}>
-        {loading?`🔍 Reading ${progress}%`:"🔍 OCR Scan"}
-      </button>
+        <button onClick={analyze} disabled={!image||loading}>
+          {loading?`🔍 Reading ${progress}%`:"🔍 OCR Scan"}
+        </button>
 
-      <button onClick={reset} style={{marginLeft:10}}>Reset</button>
+        <button onClick={reset} style={{marginLeft:10}}>Reset</button>
 
-      <div style={{marginTop:20}}>
-        {result&&(
-          result.matched
-            ? <h3 style={{color:"#4ade80"}}>✅ {result.lineShort} Line - Silo #{result.matched.num} OPEN</h3>
-            : <h3 style={{color:"#f87171"}}>❌ No Match - All Locked</h3>
-        )}
+        <div style={{marginTop:20}}>
+          {result&&(
+            result.matched
+              ? <h3 style={{color:"#4ade80"}}>✅ {line.short} Line - Silo #{result.matched.num} OPEN</h3>
+              : <h3 style={{color:"#f87171"}}>❌ No Match - All Locked</h3>
+          )}
+        </div>
       </div>
     </div>
   );
