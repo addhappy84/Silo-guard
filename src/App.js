@@ -1,18 +1,18 @@
 import { useState, useRef, useCallback } from "react";
 
-// ─── 원재료 데이터베이스 ───────────────────────────────────────
+// ─── Material Database ───────────────────────────────────────
 const LINE_A = {
   id: "A",
   name: "Antimicrobial Line — 6 Silos",
   short: "Antimicrobial",
   color: "#0ea5e9",
   silos: [
-    { id:"A1", num:1, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","CaCO3","caco3"], color:"#38bdf8" },
-    { id:"A2", num:2, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","B2O3","b2o3","B203"], color:"#818cf8" },
-    { id:"A3", num:3, formula:"ZnO",   full:"Zinc Oxide",          cas:"1314-13-2",  aliases:["zinc oxide","산화아연","ZnO","zno"], color:"#34d399" },
-    { id:"A4", num:4, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","SiO2","sio2"], color:"#fbbf24" },
-    { id:"A5", num:5, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","K2CO3","k2co3"], color:"#f87171" },
-    { id:"A6", num:6, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","Na2CO3","na2co3"], color:"#fb923c" },
+    { id:"A1", num:1, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","caco3"], color:"#38bdf8" },
+    { id:"A2", num:2, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","b2o3","b203"], color:"#818cf8" },
+    { id:"A3", num:3, formula:"ZnO",   full:"Zinc Oxide",          cas:"1314-13-2",  aliases:["zinc oxide","산화아연","zno"], color:"#34d399" },
+    { id:"A4", num:4, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","sio2"], color:"#fbbf24" },
+    { id:"A5", num:5, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","k2co3"], color:"#f87171" },
+    { id:"A6", num:6, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","na2co3"], color:"#fb923c" },
   ]
 };
 
@@ -22,53 +22,58 @@ const LINE_B = {
   short: "Enamel",
   color: "#a78bfa",
   silos: [
-    { id:"B1", num:1, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","B2O3","b2o3","B203"], color:"#818cf8" },
-    { id:"B2", num:2, formula:"TiO₂",  full:"Titanium Dioxide",    cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","titan dioxit","cotiox","ka-100","TiO2","tio2"], color:"#22d3ee" },
-    { id:"B3", num:3, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","Na2CO3","na2co3"], color:"#fb923c" },
-    { id:"B4", num:4, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","K2CO3","k2co3"], color:"#f87171" },
-    { id:"B5", num:5, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","SiO2","sio2"], color:"#fbbf24" },
-    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","CaCO3","caco3"], color:"#38bdf8" },
-    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide",        cas:"1308-06-1",  aliases:["cobalt oxide","cobalt(ii,iii) oxide","tricobalt tetraoxide","산화코발트","Co3O4","co3o4"], color:"#4ade80" },
-    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide (RED-1100)",cas:"1309-37-1", aliases:["iron oxide","iron(iii) oxide","red-1100","red 1100","red1100","산화철","Fe2O3","fe2o3","Fe203"], color:"#f97316" },
-    { id:"B9", num:9, formula:"CeO₂",  full:"Cerium Oxide",        cas:"1306-38-3",  aliases:["cerium oxide","cerium dioxide","산화세륨","CeO2","ceo2"], color:"#e879f9" },
+    { id:"B1", num:1, formula:"B₂O₃",  full:"Boron Trioxide",      cas:"1303-86-2",  aliases:["boron trioxide","boron trioxdie","boron trixodie","산화붕소","b2o3","b203"], color:"#818cf8" },
+    { id:"B2", num:2, formula:"TiO₂",  full:"Titanium Dioxide",    cas:"13463-67-7", aliases:["titanium dioxide","이산화티타늄","titan dioxit","cotiox","ka-100","tio2"], color:"#22d3ee" },
+    { id:"B3", num:3, formula:"Na₂CO₃",full:"Sodium Carbonate",    cas:"497-19-8",   aliases:["sodium carbonate","탄산나트륨","soda ash","na2co3"], color:"#fb923c" },
+    { id:"B4", num:4, formula:"K₂CO₃", full:"Potassium Carbonate", cas:"584-08-7",   aliases:["potassium carbonate","탄산칼륨","k2co3"], color:"#f87171" },
+    { id:"B5", num:5, formula:"SiO₂",  full:"Silicon Dioxide",     cas:"7631-86-9",  aliases:["silicon dioxide","이산화규소","silica","pure silica","sio2"], color:"#fbbf24" },
+    { id:"B6", num:6, formula:"CaCO₃", full:"Calcium Carbonate",   cas:"471-34-1",   aliases:["calcium carbonate","칼슘탄산염","탄산칼슘","caco3"], color:"#38bdf8" },
+    { id:"B7", num:7, formula:"Co₃O₄", full:"Cobalt Oxide",        cas:"1308-06-1",  aliases:["cobalt oxide","cobalt(ii,iii) oxide","tricobalt tetraoxide","산화코발트","co3o4"], color:"#4ade80" },
+    { id:"B8", num:8, formula:"Fe₂O₃", full:"Iron Oxide (RED-1100)",cas:"1309-37-1", aliases:["iron oxide","iron(iii) oxide","red-1100","red 1100","red1100","산화철","fe2o3","fe203"], color:"#f97316" },
+    { id:"B9", num:9, formula:"CeO₂",  full:"Cerium Oxide",        cas:"1306-38-3",  aliases:["cerium oxide","cerium dioxide","산화세륨","ceo2"], color:"#e879f9" },
   ]
 };
 
-const API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY || "";
-
-function matchChemical(name, cas, silos) {
-  if (!name && !cas) return null;
-  const nl = (name || "").toLowerCase().trim();
-  const cc = (cas || "").replace(/\s/g, "").trim();
-
-  // 1순위: CAS 번호 정확 일치 (가장 신뢰도 높음)
-  if (cc) {
-    const byCas = silos.find(s => s.cas.replace(/\s/g, "") === cc);
-    if (byCas) return byCas;
-  }
-  if (!nl) return null;
-
-  // 2순위: 별칭 정확 일치
-  const exact = silos.find(s => s.aliases.some(a => a.toLowerCase() === nl));
-  if (exact) return exact;
-
-  // 3순위: 부분 포함 (포대에 긴 문구가 있어도 핵심 별칭이 들어있으면 매칭)
-  const partial = silos.find(s => s.aliases.some(a => {
-    const al = a.toLowerCase();
-    if (al.length <= 4) {
-      // 짧은 별칭(zno, sio2 등)은 정확히 토큰으로 등장할 때만 (오인식 방지)
-      const tokens = nl.split(/[^a-z0-9]+/);
-      return tokens.includes(al);
-    }
-    return nl.includes(al) || al.includes(nl);
-  }));
-  return partial || null;
+// CAS 번호 패턴 (예: 1303-86-2)
+function extractCas(text) {
+  const m = text.match(/\b\d{2,7}-\d{2}-\d\b/);
+  return m ? m[0] : null;
 }
 
-function getBest(parsed, silos) {
-  return matchChemical(parsed.chemical_name, parsed.cas_number, silos)
-      || matchChemical(parsed.formula, parsed.cas_number, silos)
-      || matchChemical(parsed.raw_text, parsed.cas_number, silos);
+// OCR로 읽은 전체 텍스트에서 사일로 매칭
+function matchFromText(rawText, silos) {
+  if (!rawText) return null;
+  const text = rawText.toLowerCase().replace(/\s+/g, " ");
+  const cas = extractCas(rawText);
+
+  // 1순위: CAS 번호
+  if (cas) {
+    const byCas = silos.find(s => s.cas.replace(/\s/g, "") === cas.replace(/\s/g, ""));
+    if (byCas) return { silo: byCas, by: "CAS " + cas };
+  }
+
+  // 2순위: 긴 별칭 (화학명, 제품명) — 텍스트에 포함되어 있으면
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      if (a.length >= 5 && text.includes(a)) {
+        return { silo: s, by: a };
+      }
+    }
+  }
+
+  // 3순위: 짧은 화학식 (zno, sio2 등) — 단어 경계로 정확히 등장할 때만
+  // (공백 제거 포함매칭은 오인식이 많아 제외)
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      if (a.length <= 5) {
+        const tokens = text.split(/[^a-z0-9]+/).filter(Boolean);
+        if (tokens.includes(a)) {
+          return { silo: s, by: a.toUpperCase() };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function SiloCard({ silo, state }) {
@@ -78,9 +83,7 @@ function SiloCard({ silo, state }) {
     <div style={{
       background: isOpen ? `${silo.color}18` : isLocked ? "#1a0505" : "#111827",
       border: `1.5px solid ${isOpen ? silo.color : isLocked ? "#7f1d1d" : "#1f2937"}`,
-      borderRadius: 12,
-      padding: "14px 10px 10px",
-      textAlign: "center",
+      borderRadius: 12, padding: "14px 10px 10px", textAlign: "center",
       transition: "all 0.45s cubic-bezier(0.34,1.56,0.64,1)",
       transform: isOpen ? "scale(1.05)" : "scale(1)",
       boxShadow: isOpen ? `0 0 20px ${silo.color}55` : "none",
@@ -92,8 +95,7 @@ function SiloCard({ silo, state }) {
           width:40, height:10, borderRadius:"5px 5px 0 0",
           background: isOpen ? "transparent" : isLocked ? "#dc2626" : "#374151",
           border: isOpen ? "none" : `1.5px solid ${isLocked?"#ef4444":"#4b5563"}`,
-          transition:"all 0.5s ease",
-          rotate: isOpen ? "-55deg" : "0deg",
+          transition:"all 0.5s ease", rotate: isOpen ? "-55deg" : "0deg",
           transformOrigin: "left center",
         }}/>
         <div style={{
@@ -132,16 +134,10 @@ function LinePanel({ line, siloStates }) {
     }}>
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
         <div style={{ width:10,height:10,borderRadius:"50%",background:line.color,boxShadow:`0 0 8px ${line.color}` }}/>
-        <span style={{ fontSize:13,fontWeight:800,color:line.color }}>
-          {line.name}
-        </span>
+        <span style={{ fontSize:13,fontWeight:800,color:line.color }}>{line.name}</span>
         <span style={{ fontSize:10,color:"#4b5563",marginLeft:"auto" }}>{line.silos.length} silos</span>
       </div>
-      <div style={{
-        display:"grid",
-        gridTemplateColumns:`repeat(${line.silos.length <= 6 ? 3 : 3}, 1fr)`,
-        gap:8,
-      }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
         {line.silos.map(s => (
           <SiloCard key={s.id} silo={s} state={siloStates[s.id] || "idle"} />
         ))}
@@ -156,109 +152,77 @@ export default function App() {
 
   const [activeLine, setActiveLine] = useState("A");
   const [image, setImage]           = useState(null);
-  const [imgB64, setImgB64]         = useState(null);
+  const [imgURL, setImgURL]         = useState(null);
   const [loading, setLoading]       = useState(false);
+  const [progress, setProgress]     = useState(0);
   const [result, setResult]         = useState(null);
   const [siloStates, setSiloStates] = useState(initStates);
   const [log, setLog]               = useState([]);
   const fileRef = useRef();
 
   const addLog = (msg, type="info") =>
-    setLog(prev => [{ t: new Date().toLocaleTimeString("ko-KR"), msg, type }, ...prev].slice(0,30));
+    setLog(prev => [{ t: new Date().toLocaleTimeString("en-US"), msg, type }, ...prev].slice(0,30));
 
   const handleFile = (file) => {
     if (!file) return;
-    setImage(URL.createObjectURL(file));
+    const url = URL.createObjectURL(file);
+    setImgURL(url);
+    setImage(file);
     setResult(null);
-    const reader = new FileReader();
-    reader.onload = e => setImgB64(e.target.result.split(",")[1]);
-    reader.readAsDataURL(file);
   };
 
   const analyze = useCallback(async () => {
-    if (!imgB64) return;
-    if (!API_KEY) {
-      addLog("❌ API key not configured. Please check the .env file.", "error");
+    if (!image) return;
+    if (typeof window.Tesseract === "undefined") {
+      addLog("❌ OCR engine not loaded. Check your internet connection.", "error");
       return;
     }
     setLoading(true);
-    addLog("📷 Requesting image analysis...", "info");
+    setProgress(0);
+    addLog("📷 Reading text from image (free OCR)...", "info");
 
     const currentLine = activeLine === "A" ? LINE_A : LINE_B;
-    const siloList = currentLine.silos.map(s =>
-      `#${s.num}: ${s.full} (${s.formula}, CAS ${s.cas})`
-    ).join(", ");
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: [
-              { type:"image", source:{ type:"base64", media_type:"image/jpeg", data:imgB64 } },
-              { type:"text", text:
-`This image shows a chemical raw material bag (jumbo bag or label).
-Extract the chemical information from the image and return ONLY JSON (no other text).
-
-Registered materials for the current line (${currentLine.name}): ${siloList}
-
-Read ALL visible text including chemical names, formulas, CAS numbers, AND any product/brand codes (e.g. "RED-1100", "KA-100", "COTIOX", "PURE SILICA"). Put everything you see in raw_text.
-
-{
-  "chemical_name": "recognized chemical name in English (or product/brand name if no chemical name)",
-  "formula": "chemical formula (e.g. ZnO, B2O3) if visible, else null",
-  "cas_number": "CAS number (null if none)",
-  "raw_text": "ALL text read from the image including product codes and brand names",
-  "confidence": "high/medium/low"
-}`
-              }
-            ]
-          }]
-        })
+      const worker = await window.Tesseract.createWorker("eng", 1, {
+        logger: m => {
+          if (m.status === "recognizing text") {
+            setProgress(Math.round(m.progress * 100));
+          }
+        }
       });
+      const { data } = await worker.recognize(image);
+      await worker.terminate();
 
-      const data = await res.json();
-      const text = data.content?.find(c => c.type==="text")?.text || "";
-      let parsed;
-      try {
-        parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
-      } catch { throw new Error("Parse failed: " + text); }
+      const rawText = (data.text || "").trim();
+      addLog(`🔍 OCR read: "${rawText.replace(/\n/g," ").slice(0,60)}..."`, "info");
 
-      addLog(`🔍 Recognized: ${parsed.chemical_name || "Unknown"} / ${parsed.formula || "-"} (confidence: ${parsed.confidence})`, "info");
-
-      const currentLineSilos = activeLine === "A" ? LINE_A.silos : LINE_B.silos;
-      const matched = getBest(parsed, currentLineSilos);
+      const currentLineSilos = currentLine.silos;
+      const match = matchFromText(rawText, currentLineSilos);
 
       const newStates = { ...initStates };
-      if (matched) {
+      if (match) {
+        const matched = match.silo;
         newStates[matched.id] = "open";
         currentLineSilos.forEach(s => { if (s.id !== matched.id) newStates[s.id] = "locked"; });
-        addLog(`✅ ${matched.formula} → ${currentLine.short} Line Silo #${matched.num} OPEN!`, "success");
+        addLog(`✅ Matched [${match.by}] → ${currentLine.short} Line Silo #${matched.num} OPEN!`, "success");
+        setResult({ matched, by: match.by, rawText, line: currentLine.name, lineShort: currentLine.short });
       } else {
         currentLineSilos.forEach(s => { newStates[s.id] = "locked"; });
-        addLog(`❌ Unregistered material: "${parsed.chemical_name}" — all locked`, "error");
+        addLog(`❌ No match found in this line — all locked. Try a clearer photo.`, "error");
+        setResult({ matched: null, rawText, line: currentLine.name, lineShort: currentLine.short });
       }
       setSiloStates(newStates);
-      setResult({ ...parsed, matched, line: currentLine.name, lineShort: currentLine.short });
-
     } catch(err) {
       addLog("⚠️ Error: " + err.message, "error");
     } finally {
       setLoading(false);
+      setProgress(0);
     }
-  }, [imgB64, activeLine, initStates]);
+  }, [image, activeLine, initStates]);
 
   const reset = () => {
-    setImage(null); setImgB64(null); setResult(null);
+    setImage(null); setImgURL(null); setResult(null);
     setSiloStates(initStates);
     addLog("🔄 System reset", "info");
   };
@@ -278,7 +242,6 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
         * { box-sizing: border-box; }
       `}</style>
 
-      {/* 헤더 */}
       <div style={{
         background:"#0d1117", borderBottom:"1px solid #0ea5e933",
         padding:"14px 20px", display:"flex", alignItems:"center", gap:14,
@@ -290,7 +253,7 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
         }}>🏭</div>
         <div>
           <div style={{ fontSize:16,fontWeight:900 }}>Silo Charging Error Prevention System</div>
-          <div style={{ fontSize:10,color:"#4b5563" }}>Chemical Silo Guard · Antimicrobial (6) + Enamel (9)</div>
+          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR (Tesseract) · Antimicrobial (6) + Enamel (9)</div>
         </div>
         <div style={{ marginLeft:"auto",display:"flex",gap:6,alignItems:"center" }}>
           <div style={{ width:7,height:7,borderRadius:"50%",background:"#22c55e",
@@ -301,7 +264,6 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
 
       <div style={{ maxWidth:960, margin:"0 auto", padding:"16px 14px" }}>
 
-        {/* 라인 선택 */}
         <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
           {[LINE_A, LINE_B].map(line => (
             <button key={line.id} onClick={() => { setActiveLine(line.id); reset(); }}
@@ -317,36 +279,32 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
           ))}
         </div>
 
-        {/* 사일로 현황 */}
         <LinePanel line={LINE_A} siloStates={siloStates} />
         <LinePanel line={LINE_B} siloStates={siloStates} />
 
-        {/* 결과 배너 */}
         {result && (
           <div style={{
             padding:"14px 18px", borderRadius:12, marginBottom:14,
             background: matched ? "#052e1688" : "#1c0a0988",
             border:`1px solid ${matched?"#16a34a":"#b91c1c"}`,
-            display:"flex", alignItems:"center", gap:14,
-            animation:"fadeUp 0.4s ease",
+            display:"flex", alignItems:"center", gap:14, animation:"fadeUp 0.4s ease",
           }}>
             <span style={{ fontSize:32 }}>{matched?"✅":"❌"}</span>
             <div>
               <div style={{ fontWeight:900, fontSize:15, color: matched?"#4ade80":"#f87171" }}>
                 {matched
                   ? `${result.lineShort} Line · Silo #${matched.num} (${matched.formula}) CHARGING APPROVED`
-                  : `⚠️ Unregistered material — all silos locked`}
+                  : `⚠️ No match — all silos locked`}
               </div>
               <div style={{ fontSize:12, color:"#94a3b8", marginTop:2 }}>
-                Recognized: <strong style={{ color:"#e2e8f0" }}>{result.chemical_name || "Unknown"}</strong>
-                {result.formula && <span> · {result.formula}</span>}
-                {result.cas_number && <span> · CAS {result.cas_number}</span>}
+                {matched
+                  ? <span>Matched by: <strong style={{ color:"#e2e8f0" }}>{result.by}</strong></span>
+                  : <span>Could not identify. Try a clearer, closer photo of the chemical name.</span>}
               </div>
             </div>
           </div>
         )}
 
-        {/* 업로드 + 로그 */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
           <div>
             <div style={{ fontSize:10,color:"#4b5563",fontWeight:700,marginBottom:8 }}>
@@ -362,8 +320,8 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
                 alignItems:"center", justifyContent:"center",
                 cursor:"pointer", background:"#0d1117", overflow:"hidden",
               }}>
-              {image
-                ? <img src={image} style={{ width:"100%",height:180,objectFit:"cover" }} alt="bag" />
+              {imgURL
+                ? <img src={imgURL} style={{ width:"100%",height:180,objectFit:"cover" }} alt="bag" />
                 : <>
                     <div style={{ fontSize:36,marginBottom:6 }}>📦</div>
                     <div style={{ color:"#4b5563",fontSize:12 }}>Upload bag photo</div>
@@ -371,18 +329,18 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
                   </>
               }
             </div>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }}
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
               onChange={e=>handleFile(e.target.files[0])} />
             <div style={{ display:"flex",gap:8,marginTop:8 }}>
-              <button onClick={analyze} disabled={!imgB64||loading}
+              <button onClick={analyze} disabled={!image||loading}
                 style={{
                   flex:1, padding:"11px 0", borderRadius:10, border:"none",
-                  background: imgB64&&!loading ? `linear-gradient(135deg,${lineColor},#6366f1)` : "#1f2937",
-                  color: imgB64&&!loading?"#fff":"#4b5563",
+                  background: image&&!loading ? `linear-gradient(135deg,${lineColor},#6366f1)` : "#1f2937",
+                  color: image&&!loading?"#fff":"#4b5563",
                   fontWeight:800, fontSize:13,
-                  cursor: imgB64&&!loading?"pointer":"not-allowed",
+                  cursor: image&&!loading?"pointer":"not-allowed",
                 }}>
-                {loading ? "🔍 Analyzing..." : "🔍 OCR Scan"}
+                {loading ? `🔍 Reading... ${progress}%` : "🔍 OCR Scan"}
               </button>
               <button onClick={reset} style={{
                 padding:"11px 14px", borderRadius:10, border:"1px solid #1f2937",
@@ -407,6 +365,7 @@ Read ALL visible text including chemical names, formulas, CAS numbers, AND any p
                     fontSize:10, marginBottom:4, padding:"3px 6px", borderRadius:4,
                     background: l.type==="error"?"#1c0a09": l.type==="success"?"#052e16":"#0d1117",
                     color: l.type==="error"?"#f87171": l.type==="success"?"#4ade80":"#6b7280",
+                    wordBreak:"break-all",
                   }}>
                     <span style={{ color:"#374151" }}>[{l.t}] </span>{l.msg}
                   </div>
