@@ -4,20 +4,23 @@ import { useState, useRef, useCallback } from "react";
 const GEMINI_KEY = process.env.REACT_APP_GEMINI_API_KEY || "";
 
 // ─── Gemini AI로 사진에서 화학물질 판단 (OCR 실패 시 2차) ───
-// 등록된 원료 목록을 주고, 그 중 어느 것인지(또는 없음) 판단하게 함
-async function askGemini(base64Jpeg, silos) {
+// 등록된 원료 목록 + OCR이 읽은 텍스트를 힌트로 주고, 어느 것인지 판단
+async function askGemini(base64Jpeg, silos, ocrHint) {
   const list = silos.map(s => `${s.formula} (${s.full}, CAS ${s.cas})`).join("; ");
+  const hint = ocrHint && ocrHint.trim()
+    ? `\n\nFor reference, a rough OCR scan of the image read (may contain errors): "${ocrHint.slice(0, 200)}"`
+    : "";
   const prompt =
 `You are a strict chemical material identifier for a factory silo system.
 Look at this photo of a chemical material bag and identify which ONE of the registered materials it is.
 
-Registered materials: ${list}
+Registered materials: ${list}${hint}
 
 Rules:
-- Respond with ONLY the chemical formula exactly as listed (e.g. "ZnO", "B2O3", "Fe2O3"), nothing else.
-- Base your answer on visible text: chemical name, chemical formula, CAS number, or product code (e.g. "RED-1100" means Fe2O3).
+- Identify based on visible text: chemical name, chemical formula, CAS number, or product code (e.g. "RED-1100" means Fe2O3, "PURE SILICA" means SiO2, "COTIOX"/"KA-100" means TiO2).
+- Respond with ONLY the chemical formula exactly as listed (e.g. "ZnO", "B2O3", "Fe2O3"). No other words.
 - If you are NOT confident it is one of the registered materials, respond with exactly "NONE".
-- Never guess. Safety first. When unsure, respond "NONE".`;
+- Never guess. Safety first.`;
 
   const body = {
     contents: [{
@@ -26,7 +29,11 @@ Rules:
         { inline_data: { mime_type: "image/jpeg", data: base64Jpeg } },
       ],
     }],
-    generationConfig: { temperature: 0, maxOutputTokens: 20 },
+    generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 800,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   };
 
   const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -40,25 +47,37 @@ Rules:
     throw new Error("Gemini " + res.status + ": " + t.slice(0, 80));
   }
   const data = await res.json();
-  const text = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+  // 응답에서 텍스트 추출 (여러 part 합치기)
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts.map(p => p.text || "").join(" ").trim();
   return text;
 }
 
 // Gemini가 답한 화학식을 등록 사일로와 매칭
 function matchGeminiAnswer(answer, silos) {
   if (!answer) return null;
-  const a = answer.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (a === "none" || a.includes("none") || !a) return null;
-  // 화학식 정확 일치
+  const norm = (str) => str.toLowerCase()
+    .replace(/₀/g,"0").replace(/₁/g,"1").replace(/₂/g,"2").replace(/₃/g,"3").replace(/₄/g,"4")
+    .replace(/[^a-z0-9]/g, "");
+  const low = answer.toLowerCase();
+  if (low.includes("none")) return null;
+  const a = norm(answer);
+  if (!a) return null;
+
+  // 1) 화학식 정확 일치
   for (const s of silos) {
-    const f = s.formula.toLowerCase().replace(/[^a-z0-9]/g, "")
-      .replace(/₀/g,"0").replace(/₁/g,"1").replace(/₂/g,"2").replace(/₃/g,"3").replace(/₄/g,"4");
-    if (f === a) return s;
+    if (norm(s.formula) === a) return s;
   }
-  // 별칭으로도 시도
+  // 2) 답변 문자열 안에 화학식이 포함 (문장으로 답한 경우)
+  for (const s of silos) {
+    const f = norm(s.formula);
+    if (f.length >= 3 && a.includes(f)) return s;
+  }
+  // 3) 별칭 일치/포함
   for (const s of silos) {
     for (const al of s.aliases) {
-      if (al.replace(/[^a-z0-9]/g, "") === a) return s;
+      const an = al.replace(/[^a-z0-9]/g, "");
+      if (an.length >= 4 && (an === a || low.includes(al.toLowerCase()))) return s;
     }
   }
   return null;
@@ -492,7 +511,7 @@ export default function App() {
           const dataUrl = aiCanvas.toDataURL("image/jpeg", 0.85);
           const b64 = dataUrl.split(",")[1];
 
-          const answer = await askGemini(b64, currentLineSilos);
+          const answer = await askGemini(b64, currentLineSilos, allText);
           addLog(`🤖 AI answer: "${answer}"`, "info");
           const aiSilo = matchGeminiAnswer(answer, currentLineSilos);
 
