@@ -1,5 +1,69 @@
 import { useState, useRef, useCallback } from "react";
 
+// Gemini 무료 API 키 (Netlify 환경변수에서 주입)
+const GEMINI_KEY = process.env.REACT_APP_GEMINI_API_KEY || "";
+
+// ─── Gemini AI로 사진에서 화학물질 판단 (OCR 실패 시 2차) ───
+// 등록된 원료 목록을 주고, 그 중 어느 것인지(또는 없음) 판단하게 함
+async function askGemini(base64Jpeg, silos) {
+  const list = silos.map(s => `${s.formula} (${s.full}, CAS ${s.cas})`).join("; ");
+  const prompt =
+`You are a strict chemical material identifier for a factory silo system.
+Look at this photo of a chemical material bag and identify which ONE of the registered materials it is.
+
+Registered materials: ${list}
+
+Rules:
+- Respond with ONLY the chemical formula exactly as listed (e.g. "ZnO", "B2O3", "Fe2O3"), nothing else.
+- Base your answer on visible text: chemical name, chemical formula, CAS number, or product code (e.g. "RED-1100" means Fe2O3).
+- If you are NOT confident it is one of the registered materials, respond with exactly "NONE".
+- Never guess. Safety first. When unsure, respond "NONE".`;
+
+  const body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: "image/jpeg", data: base64Jpeg } },
+      ],
+    }],
+    generationConfig: { temperature: 0, maxOutputTokens: 20 },
+  };
+
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error("Gemini " + res.status + ": " + t.slice(0, 80));
+  }
+  const data = await res.json();
+  const text = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+  return text;
+}
+
+// Gemini가 답한 화학식을 등록 사일로와 매칭
+function matchGeminiAnswer(answer, silos) {
+  if (!answer) return null;
+  const a = answer.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (a === "none" || a.includes("none") || !a) return null;
+  // 화학식 정확 일치
+  for (const s of silos) {
+    const f = s.formula.toLowerCase().replace(/[^a-z0-9]/g, "")
+      .replace(/₀/g,"0").replace(/₁/g,"1").replace(/₂/g,"2").replace(/₃/g,"3").replace(/₄/g,"4");
+    if (f === a) return s;
+  }
+  // 별칭으로도 시도
+  for (const s of silos) {
+    for (const al of s.aliases) {
+      if (al.replace(/[^a-z0-9]/g, "") === a) return s;
+    }
+  }
+  return null;
+}
+
 // ─── Material Database ───────────────────────────────────────
 const LINE_A = {
   id: "A",
@@ -34,15 +98,6 @@ const LINE_B = {
   ]
 };
 
-// 핵심 키워드 → 화학식 (OCR이 단어 하나만 제대로 읽어도 잡기 위한 보조 매칭)
-const KEYWORDS = [
-  { k:"zinc", f:"zno" }, { k:"boron", f:"b2o3" }, { k:"cobalt", f:"co3o4" },
-  { k:"cerium", f:"ceo2" }, { k:"titanium", f:"tio2" }, { k:"potassium", f:"k2co3" },
-  { k:"sodium", f:"na2co3" }, { k:"calcium", f:"caco3" }, { k:"silica", f:"sio2" },
-  { k:"silicon", f:"sio2" }, { k:"iron", f:"fe2o3" }, { k:"cotiox", f:"tio2" },
-  { k:"red1100", f:"fe2o3" }, { k:"red-1100", f:"fe2o3" },
-];
-
 // ─── 레벤슈타인 거리 (오타 허용 매칭) ───
 function levenshtein(a, b) {
   if (a.length === 0) return b.length;
@@ -76,71 +131,100 @@ function normalizeOcr(str) {
     .replace(/\|/g, "l");
 }
 
-// ─── 텍스트 → 사일로 매칭 (CAS → 정확 → 부분 → 키워드 → 오타허용) ───
+// ─── 엄격 매칭: 확실할 때만 승인, 애매하면 null(거부) ───
+// 반환: { silo, by, strong } — strong=true면 확실, false면 약한근거(2차 AI 권장)
 function matchFromText(rawText, silos) {
   if (!rawText) return null;
   const text = rawText.toLowerCase().replace(/\s+/g, " ");
-  const compact = text.replace(/[^a-z0-9가-힣]/g, "");
   const tokens = text.split(/[^a-z0-9가-힣]+/).filter(Boolean);
+  const tokenSet = new Set(tokens);
 
-  // 1순위: CAS 번호
+  // ── 1순위: CAS 번호 정확 일치 (가장 신뢰, 무조건 승인) ──
   const cas = extractCas(rawText);
   if (cas) {
     const byCas = silos.find(s => s.cas === cas);
-    if (byCas) return { silo: byCas, by: "CAS " + cas };
+    if (byCas) return { silo: byCas, by: "CAS " + cas, strong: true };
   }
 
-  // 2순위: 긴 별칭 정확/부분 포함 (화학명, 제품명, 한글)
+  // ── 2순위: 화학명/제품명이 토큰으로 명확히 등장 ──
+  // (쓰레기 텍스트 속 우연한 부분포함 차단을 위해 '단어 단위'로만 인정)
+  // 멀티워드 별칭(예: "calcium carbonate")은 모든 단어가 토큰에 있어야 함
   for (const s of silos) {
     for (const a of s.aliases) {
-      const ca = a.replace(/[^a-z0-9가-힣]/g, "");
-      if (ca.length >= 4 && compact.includes(ca)) return { silo: s, by: a };
-    }
-  }
-
-  // 3순위: 짧은 화학식 (zno, sio2 등) — 토큰 일치 또는 공백제거 포함
-  for (const s of silos) {
-    for (const a of s.aliases) {
-      const ca = a.replace(/[^a-z0-9]/g, "");
-      if (ca.length <= 5 && ca.length >= 3) {
-        if (tokens.includes(a) || compact.includes(ca)) return { silo: s, by: a.toUpperCase() };
+      const words = a.toLowerCase().split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        // 두 단어 이상: 모든 단어가 각각 토큰으로 존재해야 (강한 근거)
+        const allPresent = words.every(w => {
+          const wc = w.replace(/[^a-z0-9가-힣]/g, "");
+          return wc.length >= 3 && tokenSet.has(wc);
+        });
+        if (allPresent) return { silo: s, by: a, strong: true };
       }
     }
   }
 
-  // 4순위: 핵심 키워드 (단어 하나만 읽혔을 때) — 정규화 버전으로도 비교
-  const compactNorm = normalizeOcr(compact);
-  for (const kw of KEYWORDS) {
-    const kk = kw.k.replace(/[^a-z0-9]/g, "");
-    if (compact.includes(kk) || compactNorm.includes(normalizeOcr(kk))) {
-      const s = silos.find(si => si.aliases.some(a => a.replace(/[^a-z0-9]/g,"") === kw.f));
-      if (s) return { silo: s, by: kw.k };
+  // ── 3순위: 한글 화학명 (탄산칼슘 등) 토큰/포함 ──
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      if (/[가-힣]/.test(a)) {
+        const ka = a.replace(/[^가-힣]/g, "");
+        if (ka.length >= 3 && text.includes(ka)) return { silo: s, by: a, strong: true };
+      }
     }
   }
 
-  // 5순위: 오타 허용 (레벤슈타인) — 단어 1~3개 묶어 화학명과 비교
-  // OCR 혼동문자(0↔o,1↔l,5↔s)를 보정한 버전으로도 비교
+  // ── 4순위: 화학식 (zno, tio2, b2o3 등)이 '독립 토큰'으로 정확히 등장 ──
+  // 핵심: 부분포함(includes) 금지. 반드시 단어 하나가 화학식과 정확히 일치해야 함.
+  // 추가 안전장치: 숫자를 포함한 화학식만 인정 (b2o3, tio2 등) — 순수문자(zno)는 단독+짧아서 위험
   for (const s of silos) {
     for (const a of s.aliases) {
-      const ca = a.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
-      if (ca.length < 5) continue; // 짧은 건 오타매칭 위험 → 제외
-      const caNorm = normalizeOcr(ca);
-      for (let i = 0; i < tokens.length; i++) {
-        let combo = "";
-        for (let j = 0; j < 3 && i + j < tokens.length; j++) {
-          combo += tokens[i + j];
-          if (Math.abs(combo.length - ca.length) > 2) continue;
-          const comboNorm = normalizeOcr(combo);
-          const dist = Math.min(levenshtein(combo, ca), levenshtein(comboNorm, caNorm));
-          const maxDist = ca.length >= 8 ? 2 : 1;
-          if (dist > 0 && dist <= maxDist) {
-            return { silo: s, by: `${a} (~${combo})` };
+      const ca = a.toLowerCase().replace(/[^a-z0-9]/g, "");
+      // 화학식 후보: 3~6자, 숫자 포함 (예: b2o3, tio2, caco3, sio2, co3o4, fe2o3, ceo2, k2co3, na2co3)
+      if (ca.length >= 3 && ca.length <= 6 && /[0-9]/.test(ca)) {
+        if (tokenSet.has(ca)) return { silo: s, by: ca.toUpperCase(), strong: true };
+        // 정규화(0↔o,1↔l) 후 토큰 일치도 인정
+        const caN = normalizeOcr(ca);
+        for (const t of tokens) {
+          if (t.length === ca.length && normalizeOcr(t) === caN) {
+            return { silo: s, by: ca.toUpperCase(), strong: true };
           }
         }
       }
     }
   }
-  return null;
+
+  // ── 5순위: 단일 단어 화학명(긴 것)만 레벤슈타인 (예: titanium, potassium) ──
+  // 매우 엄격: 별칭 단어 길이 7+ & 오차 1글자 이하 & 길이차 1 이하
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      const words = a.toLowerCase().split(/\s+/).filter(Boolean);
+      if (words.length !== 1) continue;
+      const w = words[0].replace(/[^a-z0-9]/g, "");
+      if (w.length < 7) continue; // 7자 미만은 오타매칭 위험 → 제외
+      for (const t of tokens) {
+        if (Math.abs(t.length - w.length) > 1) continue;
+        const dist = Math.min(levenshtein(t, w), levenshtein(normalizeOcr(t), normalizeOcr(w)));
+        if (dist > 0 && dist <= 1) {
+          return { silo: s, by: `${a} (~${t})`, strong: false }; // 약한 근거
+        }
+      }
+    }
+  }
+
+  // ── 제품명 RED-1100 등 특수 코드 (정확 토큰만) ──
+  for (const s of silos) {
+    for (const a of s.aliases) {
+      const ca = a.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (/^red\d{3,4}$/.test(ca) || ca === "cotiox") {
+        const aN = a.toLowerCase().replace(/\s/g, "");
+        for (const t of tokens) {
+          if (t === ca || t === aN) return { silo: s, by: a, strong: true };
+        }
+      }
+    }
+  }
+
+  return null; // 확실한 근거 없음 → 거부 (오인식 방지)
 }
 
 // ─── 이미지 전처리: 확대 + 흑백 + 이진화 + 회전 (한 영역) ───
@@ -339,30 +423,42 @@ export default function App() {
         return null;
       };
 
+      let weakMatch = null; // 약한 근거는 보류했다가 strong 없을 때만 후보
+
       // ── 1단계: 전체 이미지를 4방향 회전으로 시도 (누운 라벨 대응) ──
       const rotations = [0, 90, 180, 270];
-      for (let i = 0; i < rotations.length && !match; i++) {
+      for (let i = 0; i < rotations.length && !(match && match.strong); i++) {
         const rot = rotations[i];
         addLog(`🔄 Scanning full image @ ${rot}° (${i+1}/4)...`, "info");
-        match = await tryScan("full", 0, 0, W, H, rot);
+        const found = await tryScan("full", 0, 0, W, H, rot);
+        if (found && found.strong) { match = found; }
+        else if (found && !weakMatch) { weakMatch = found; }
       }
 
-      // ── 2단계: 못 찾으면 세부 영역을 0°로 스캔 (중앙/상/하) ──
-      if (!match) {
+      // ── 2단계: strong 못 찾으면 세부 영역을 0°로 스캔 (중앙/상/하) ──
+      if (!(match && match.strong)) {
         const regions = [
           { name:"center", sx:W*0.10, sy:H*0.20, sw:W*0.80, sh:H*0.55 },
           { name:"top",    sx:0,      sy:0,      sw:W,      sh:H*0.55 },
           { name:"bottom", sx:0,      sy:H*0.45, sw:W,      sh:H*0.55 },
         ];
-        for (let r = 0; r < regions.length && !match; r++) {
+        for (let r = 0; r < regions.length && !(match && match.strong); r++) {
           const reg = regions[r];
           addLog(`🔍 Scanning region: ${reg.name} (${r+1}/${regions.length})...`, "info");
-          match = await tryScan(reg.name, reg.sx, reg.sy, reg.sw, reg.sh, 0);
+          const found = await tryScan(reg.name, reg.sx, reg.sy, reg.sw, reg.sh, 0);
+          if (found && found.strong) { match = found; }
+          else if (found && !weakMatch) { weakMatch = found; }
         }
       }
 
-      // 마지막: 누적 텍스트로 한번 더
-      if (!match) match = matchFromText(allText, currentLineSilos);
+      // 마지막: 누적 텍스트로 한번 더 (strong만 채택)
+      if (!(match && match.strong)) {
+        const last = matchFromText(allText, currentLineSilos);
+        if (last && last.strong) match = last;
+        else if (last && !weakMatch) weakMatch = last;
+      }
+      // strong이 없으면 약한 매칭을 match 자리에 (strong=false라 아래서 AI로 넘어감)
+      if (!match) match = weakMatch;
 
       await worker.terminate();
 
@@ -370,17 +466,56 @@ export default function App() {
       addLog(`📄 OCR text: "${preview}..."`, "info");
 
       const newStates = { ...initStates };
-      if (match) {
+
+      // ── OCR(1차)로 확실히 잡힌 경우 → 즉시 승인 ──
+      if (match && match.strong) {
         const matched = match.silo;
         newStates[matched.id] = "open";
         currentLineSilos.forEach(s => { if (s.id !== matched.id) newStates[s.id] = "locked"; });
         addLog(`✅ Matched [${match.by}] → ${currentLine.short} Line Silo #${matched.num} OPEN!`, "success");
         setResult({ matched, by: match.by, line: currentLine.name, lineShort: currentLine.short });
-      } else {
-        currentLineSilos.forEach(s => { newStates[s.id] = "locked"; });
-        addLog(`❌ No match in this line — all locked. Try a closer photo of the name.`, "error");
-        setResult({ matched: null, line: currentLine.name, lineShort: currentLine.short });
+        setSiloStates(newStates);
+        URL.revokeObjectURL(url);
+        return;
       }
+
+      // ── OCR이 실패했거나 약한 근거 → 2차: Gemini AI 판단 ──
+      if (GEMINI_KEY) {
+        addLog("🤖 OCR uncertain. Asking AI (Gemini) for confirmation...", "info");
+        try {
+          // 원본 이미지를 적당히 줄여 jpeg base64로 변환 (용량/속도)
+          const aiCanvas = document.createElement("canvas");
+          const aiScale = Math.min(1, 1024 / Math.max(img.width, img.height));
+          aiCanvas.width = Math.round(img.width * aiScale);
+          aiCanvas.height = Math.round(img.height * aiScale);
+          aiCanvas.getContext("2d").drawImage(img, 0, 0, aiCanvas.width, aiCanvas.height);
+          const dataUrl = aiCanvas.toDataURL("image/jpeg", 0.85);
+          const b64 = dataUrl.split(",")[1];
+
+          const answer = await askGemini(b64, currentLineSilos);
+          addLog(`🤖 AI answer: "${answer}"`, "info");
+          const aiSilo = matchGeminiAnswer(answer, currentLineSilos);
+
+          if (aiSilo) {
+            newStates[aiSilo.id] = "open";
+            currentLineSilos.forEach(s => { if (s.id !== aiSilo.id) newStates[s.id] = "locked"; });
+            addLog(`✅ AI confirmed → ${currentLine.short} Line Silo #${aiSilo.num} OPEN!`, "success");
+            setResult({ matched: aiSilo, by: "AI (" + answer + ")", line: currentLine.name, lineShort: currentLine.short });
+            setSiloStates(newStates);
+            URL.revokeObjectURL(url);
+            return;
+          } else {
+            addLog(`❌ AI could not confirm a registered material — locked.`, "error");
+          }
+        } catch (aiErr) {
+          addLog("⚠️ AI error: " + aiErr.message, "error");
+        }
+      }
+
+      // ── 1차·2차 모두 실패 → 안전하게 전체 잠금 ──
+      currentLineSilos.forEach(s => { newStates[s.id] = "locked"; });
+      addLog(`❌ No confident match — all locked. Try a closer photo of the name/CAS.`, "error");
+      setResult({ matched: null, line: currentLine.name, lineShort: currentLine.short });
       setSiloStates(newStates);
       URL.revokeObjectURL(url);
     } catch(err) {
@@ -423,7 +558,7 @@ export default function App() {
         }}>🏭</div>
         <div>
           <div style={{ fontSize:16,fontWeight:900 }}>Silo Charging Error Prevention System</div>
-          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR · Rotation + Multi-region + Binarize + Fuzzy · Antimicrobial (6) + Enamel (9)</div>
+          <div style={{ fontSize:10,color:"#4b5563" }}>Free OCR + AI fallback (Gemini) · Strict · Antimicrobial (6) + Enamel (9)</div>
         </div>
         <div style={{ marginLeft:"auto",display:"flex",gap:6,alignItems:"center" }}>
           <div style={{ width:7,height:7,borderRadius:"50%",background:"#22c55e",
